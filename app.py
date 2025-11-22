@@ -8,6 +8,7 @@ from groq import Groq
 from sentence_transformers import SentenceTransformer
 import uuid
 import tempfile
+import shutil # Added to check for system tools
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="YouTube Video Chat", page_icon="📺", layout="wide")
@@ -16,9 +17,26 @@ st.set_page_config(page_title="YouTube Video Chat", page_icon="📺", layout="wi
 GROQ_API_KEY = "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"
 # 👆👆👆 PASTE YOUR GROQ API KEY HERE 👆👆👆
 
-# --- CACHED RESOURCE LOADING ---
-# These functions run only once and are cached to improve performance
+# --- SYSTEM CHECKS ---
+def check_for_ffmpeg():
+    """Checks if FFmpeg is installed and available in the system PATH."""
+    if not shutil.which("ffmpeg"):
+        st.error("⚠️ **Critical Dependency Missing: FFmpeg**")
+        st.markdown("""
+        This app requires **FFmpeg** to process audio files, but it was not found on this system.
+        
+        **How to fix:**
+        1. **Streamlit Cloud:** Create a file named `packages.txt` in your repo and add the word `ffmpeg` inside it.
+        2. **Local (Windows):** Download FFmpeg, extract it, and add the `bin` folder to your System PATH.
+        3. **Local (Mac):** Run `brew install ffmpeg`.
+        4. **Local (Linux):** Run `sudo apt install ffmpeg`.
+        """)
+        st.stop() # Stop execution to prevent raw errors
 
+# Run check immediately
+check_for_ffmpeg()
+
+# --- CACHED RESOURCE LOADING ---
 @st.cache_resource
 def load_whisper_model():
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -43,7 +61,7 @@ def download_audio(youtube_url):
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        'outtmpl': temp_filename, # Save to the temp filename
+        'outtmpl': temp_filename,
         'quiet': True
     }
     
@@ -100,15 +118,18 @@ def process_video(url):
         embeddings = embedding_model.encode(chunks).tolist()
         ids = [str(uuid.uuid4()) for _ in range(len(chunks))]
         
-        # Setup ChromaDB (Ephemeral in-memory client for this session)
+        # Setup ChromaDB
         chroma_client = chromadb.Client()
-        collection_name = "video_rag_" + str(uuid.uuid4()) # Unique name per process
+        collection_name = "video_rag_" + str(uuid.uuid4())
         collection = chroma_client.create_collection(name=collection_name)
         
         collection.add(documents=chunks, embeddings=embeddings, ids=ids)
         
         # Cleanup
-        os.remove(audio_path)
+        try:
+            os.remove(audio_path)
+        except:
+            pass
         
         status.update(label="✅ Video Processed!", state="complete", expanded=False)
         return collection
@@ -141,7 +162,6 @@ with st.sidebar:
         elif not youtube_url:
             st.warning("Please enter a URL.")
         else:
-            # Clear previous chat when new video is processed
             st.session_state.messages = []
             st.session_state.vector_collection = process_video(youtube_url)
 
@@ -149,24 +169,19 @@ with st.sidebar:
 if not st.session_state.vector_collection:
     st.info("👈 Please enter a YouTube URL in the sidebar and click 'Process Video' to start.")
 else:
-    # Display Chat History
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # Handle User Input
     if prompt := st.chat_input("Ask a question about the video..."):
-        # 1. Display User Message
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # 2. Generate Response
         with st.chat_message("assistant"):
             message_placeholder = st.empty()
             
             try:
-                # Retrieve Context
                 embedding_model = load_embedding_model()
                 query_embedding = embedding_model.encode([prompt]).tolist()
                 
@@ -175,9 +190,11 @@ else:
                     n_results=3
                 )
                 
-                context_text = "\n\n".join(results['documents'][0])
+                if results['documents']:
+                    context_text = "\n\n".join(results['documents'][0])
+                else:
+                    context_text = "No relevant context found."
                 
-                # Call Groq
                 client = Groq(api_key=GROQ_API_KEY)
                 completion = client.chat.completions.create(
                     messages=[
@@ -193,10 +210,9 @@ else:
                     model="llama-3.3-70b-versatile",
                     temperature=0.5,
                     max_tokens=1024,
-                    stream=True # Streaming response for better UX
+                    stream=True
                 )
                 
-                # Stream the response
                 full_response = ""
                 for chunk in completion:
                     if chunk.choices[0].delta.content:
@@ -204,8 +220,6 @@ else:
                         message_placeholder.markdown(full_response + "▌")
                 
                 message_placeholder.markdown(full_response)
-                
-                # Add to history
                 st.session_state.messages.append({"role": "assistant", "content": full_response})
 
             except Exception as e:
