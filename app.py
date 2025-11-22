@@ -8,7 +8,7 @@ from groq import Groq
 from sentence_transformers import SentenceTransformer
 import uuid
 import tempfile
-import shutil # Added to check for system tools
+import shutil 
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="YouTube Video Chat", page_icon="📺", layout="wide")
@@ -18,23 +18,28 @@ GROQ_API_KEY = "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"
 # 👆👆👆 PASTE YOUR GROQ API KEY HERE 👆👆👆
 
 # --- SYSTEM CHECKS ---
-def check_for_ffmpeg():
-    """Checks if FFmpeg is installed and available in the system PATH."""
-    if not shutil.which("ffmpeg"):
-        st.error("⚠️ **Critical Dependency Missing: FFmpeg**")
-        st.markdown("""
-        This app requires **FFmpeg** to process audio files, but it was not found on this system.
+def check_system_deps():
+    """Checks if FFmpeg AND FFprobe are installed."""
+    ffmpeg_path = shutil.which("ffmpeg")
+    ffprobe_path = shutil.which("ffprobe")
+
+    if not ffmpeg_path or not ffprobe_path:
+        st.error("⚠️ **Critical Dependency Missing: FFmpeg/FFprobe**")
+        st.markdown(f"""
+        This app requires both **FFmpeg** and **FFprobe** to process audio.
+        
+        - FFmpeg found: `{ffmpeg_path}`
+        - FFprobe found: `{ffprobe_path}`
         
         **How to fix:**
-        1. **Streamlit Cloud:** Create a file named `packages.txt` in your repo and add the word `ffmpeg` inside it.
-        2. **Local (Windows):** Download FFmpeg, extract it, and add the `bin` folder to your System PATH.
-        3. **Local (Mac):** Run `brew install ffmpeg`.
-        4. **Local (Linux):** Run `sudo apt install ffmpeg`.
+        1. **Streamlit Cloud:** Ensure `packages.txt` exists in your repo and contains the word `ffmpeg`.
+        2. **Local (Windows):** Download the 'full' or 'essentials' build of FFmpeg (not just the executable) and ensure both `ffmpeg.exe` and `ffprobe.exe` are in your PATH.
         """)
-        st.stop() # Stop execution to prevent raw errors
+        st.stop()
+    return ffmpeg_path
 
-# Run check immediately
-check_for_ffmpeg()
+# Run check immediately and get path
+FFMPEG_PATH = check_system_deps()
 
 # --- CACHED RESOURCE LOADING ---
 @st.cache_resource
@@ -54,8 +59,10 @@ def download_audio(youtube_url):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_audio:
         temp_filename = temp_audio.name
 
+    # We explicitly provide the ffmpeg location to yt-dlp to avoid path errors
     ydl_opts = {
         'format': 'bestaudio/best',
+        'ffmpeg_location': FFMPEG_PATH, # EXPLICITLY SET FFMPEG LOCATION
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
