@@ -1,0 +1,8 @@
+streamlit
+groq
+yt-dlp
+openai-whisper
+chromadb
+sentence-transformers
+torch
+numpy
