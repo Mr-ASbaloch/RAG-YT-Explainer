@@ -1,14 +1,11 @@
 import os
 import streamlit as st
 import yt_dlp
-import whisper
-import torch
 import chromadb
 from groq import Groq
 from sentence_transformers import SentenceTransformer
 import uuid
 import tempfile
-import shutil 
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="YouTube Video Chat", page_icon="📺", layout="wide")
@@ -17,59 +14,26 @@ st.set_page_config(page_title="YouTube Video Chat", page_icon="📺", layout="wi
 GROQ_API_KEY = "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"
 # 👆👆👆 PASTE YOUR GROQ API KEY HERE 👆👆👆
 
-# --- SYSTEM CHECKS ---
-def check_system_deps():
-    """Checks if FFmpeg AND FFprobe are installed."""
-    ffmpeg_path = shutil.which("ffmpeg")
-    ffprobe_path = shutil.which("ffprobe")
-
-    if not ffmpeg_path or not ffprobe_path:
-        st.error("⚠️ **Critical Dependency Missing: FFmpeg/FFprobe**")
-        st.markdown(f"""
-        This app requires both **FFmpeg** and **FFprobe** to process audio.
-        
-        - FFmpeg found: `{ffmpeg_path}`
-        - FFprobe found: `{ffprobe_path}`
-        
-        **How to fix:**
-        1. **Streamlit Cloud:** Ensure `packages.txt` exists in your repo and contains the word `ffmpeg`.
-        2. **Local (Windows):** Download the 'full' or 'essentials' build of FFmpeg (not just the executable) and ensure both `ffmpeg.exe` and `ffprobe.exe` are in your PATH.
-        """)
-        st.stop()
-    return ffmpeg_path
-
-# Run check immediately and get path
-FFMPEG_PATH = check_system_deps()
-
 # --- CACHED RESOURCE LOADING ---
 @st.cache_resource
-def load_whisper_model():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    return whisper.load_model("base", device=device)
-
-@st.cache_resource
 def load_embedding_model():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    return SentenceTransformer('all-MiniLM-L6-v2', device=device)
+    # We still use local embeddings as they don't require external tools
+    return SentenceTransformer('all-MiniLM-L6-v2')
 
 # --- HELPER FUNCTIONS ---
 
-def download_audio(youtube_url):
-    """Downloads audio to a temporary file."""
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_audio:
+def download_audio_raw(youtube_url):
+    """
+    Downloads raw m4a audio without conversion to avoid FFmpeg dependency.
+    """
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as temp_audio:
         temp_filename = temp_audio.name
 
-    # We explicitly provide the ffmpeg location to yt-dlp to avoid path errors
     ydl_opts = {
-        'format': 'bestaudio/best',
-        'ffmpeg_location': FFMPEG_PATH, # EXPLICITLY SET FFMPEG LOCATION
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
+        'format': 'bestaudio[ext=m4a]/best', # Force m4a to avoid conversion
         'outtmpl': temp_filename,
-        'quiet': True
+        'quiet': True,
+        'nocheckcertificate': True,
     }
     
     try:
@@ -77,7 +41,14 @@ def download_audio(youtube_url):
             ydl.download([youtube_url])
         return temp_filename
     except Exception as e:
-        raise Exception(f"Error downloading video: {str(e)}")
+        # If m4a fails, try a generic best audio download
+        try:
+            ydl_opts['format'] = 'bestaudio/best'
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([youtube_url])
+            return temp_filename
+        except Exception as final_e:
+            raise Exception(f"Download failed: {str(final_e)}")
 
 def split_text(text, chunk_size=1000, chunk_overlap=100):
     """Manually splits text into chunks with overlap."""
@@ -100,20 +71,30 @@ def split_text(text, chunk_size=1000, chunk_overlap=100):
             
     return chunks
 
-def process_video(url):
-    """Orchestrates the download, transcription, and indexing."""
+def process_video(url, api_key):
+    """Orchestrates download, API transcription, and indexing."""
     status = st.status("Processing video...", expanded=True)
     
     try:
-        # 1. Download
-        status.write("📥 Downloading audio...")
-        audio_path = download_audio(url)
+        client = Groq(api_key=api_key)
+
+        # 1. Download Raw Audio
+        status.write("📥 Downloading raw audio (No FFmpeg)...")
+        audio_path = download_audio_raw(url)
         
-        # 2. Transcribe
-        status.write("🎙️ Transcribing audio (this takes a moment)...")
-        whisper_model = load_whisper_model()
-        result = whisper_model.transcribe(audio_path)
-        transcription = result["text"]
+        # 2. API Transcription (Groq Whisper)
+        status.write("☁️ Sending to Groq for transcription...")
+        
+        # Open the file and send to Groq API
+        with open(audio_path, "rb") as file:
+            transcription_obj = client.audio.transcriptions.create(
+                file=(audio_path, file.read()),
+                model="distil-whisper-large-v3-en", # Groq's fast model
+                response_format="json",
+                language="en",
+                temperature=0.0
+            )
+        transcription = transcription_obj.text
         
         # 3. Split
         status.write("✂️ Splitting text...")
@@ -144,12 +125,13 @@ def process_video(url):
     except Exception as e:
         status.update(label="❌ Error", state="error", expanded=True)
         st.error(f"An error occurred: {str(e)}")
+        st.markdown("If the file is too large (>25MB), Groq API might reject it.")
         return None
 
 # --- MAIN APPLICATION UI ---
 
-st.title("📺 YouTube Video RAG Explainer")
-st.caption("Powered by Groq, Llama 3, & Streamlit")
+st.title("📺 YouTube Video RAG (No-Install Version)")
+st.caption("Powered by Groq API (Audio & Chat) - No FFmpeg required")
 
 # Session State Initialization
 if "messages" not in st.session_state:
@@ -170,7 +152,7 @@ with st.sidebar:
             st.warning("Please enter a URL.")
         else:
             st.session_state.messages = []
-            st.session_state.vector_collection = process_video(youtube_url)
+            st.session_state.vector_collection = process_video(youtube_url, GROQ_API_KEY)
 
 # Chat Interface
 if not st.session_state.vector_collection:
@@ -189,6 +171,7 @@ else:
             message_placeholder = st.empty()
             
             try:
+                # Retrieve Context
                 embedding_model = load_embedding_model()
                 query_embedding = embedding_model.encode([prompt]).tolist()
                 
