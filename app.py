@@ -6,6 +6,7 @@ from groq import Groq
 from sentence_transformers import SentenceTransformer
 import uuid
 import tempfile
+import shutil
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="YouTube Video Chat", page_icon="📺", layout="wide")
@@ -24,14 +25,15 @@ def load_embedding_model():
 
 def download_audio_raw(youtube_url):
     """
-    Downloads raw m4a audio without conversion to avoid FFmpeg dependency.
+    Downloads raw audio using a temporary directory to handle
+    variable file extensions (m4a, webm, etc.) automatically.
     """
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".m4a") as temp_audio:
-        temp_filename = temp_audio.name
+    # Create a temporary directory to hold the download
+    temp_dir = tempfile.mkdtemp()
 
     ydl_opts = {
-        'format': 'bestaudio[ext=m4a]/best', # Force m4a to avoid conversion
-        'outtmpl': temp_filename,
+        'format': 'bestaudio/best', # Get best quality, let yt-dlp decide extension
+        'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'), # Save inside temp dir
         'quiet': True,
         'nocheckcertificate': True,
     }
@@ -39,16 +41,18 @@ def download_audio_raw(youtube_url):
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([youtube_url])
-        return temp_filename
+        
+        # Find the downloaded file in the directory
+        files = os.listdir(temp_dir)
+        if not files:
+            raise Exception("Download failed: No file found.")
+        
+        # Return the full path to the downloaded file
+        return os.path.join(temp_dir, files[0])
+
     except Exception as e:
-        # If m4a fails, try a generic best audio download
-        try:
-            ydl_opts['format'] = 'bestaudio/best'
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([youtube_url])
-            return temp_filename
-        except Exception as final_e:
-            raise Exception(f"Download failed: {str(final_e)}")
+        shutil.rmtree(temp_dir) # Cleanup on failure
+        raise Exception(f"Download failed: {str(e)}")
 
 def split_text(text, chunk_size=1000, chunk_overlap=100):
     """Manually splits text into chunks with overlap."""
@@ -74,6 +78,7 @@ def split_text(text, chunk_size=1000, chunk_overlap=100):
 def process_video(url, api_key):
     """Orchestrates download, API transcription, and indexing."""
     status = st.status("Processing video...", expanded=True)
+    audio_path = None
     
     try:
         client = Groq(api_key=api_key)
@@ -82,13 +87,17 @@ def process_video(url, api_key):
         status.write("📥 Downloading raw audio (No FFmpeg)...")
         audio_path = download_audio_raw(url)
         
+        # Check if file is valid before sending
+        if os.path.getsize(audio_path) == 0:
+             raise Exception("Downloaded audio file is empty.")
+
         # 2. API Transcription (Groq Whisper)
         status.write("☁️ Sending to Groq for transcription...")
         
         # Open the file and send to Groq API
         with open(audio_path, "rb") as file:
             transcription_obj = client.audio.transcriptions.create(
-                file=(audio_path, file.read()),
+                file=(os.path.basename(audio_path), file.read()), # Pass filename explicitly
                 model="distil-whisper-large-v3-en", # Groq's fast model
                 response_format="json",
                 language="en",
@@ -113,12 +122,6 @@ def process_video(url, api_key):
         
         collection.add(documents=chunks, embeddings=embeddings, ids=ids)
         
-        # Cleanup
-        try:
-            os.remove(audio_path)
-        except:
-            pass
-        
         status.update(label="✅ Video Processed!", state="complete", expanded=False)
         return collection
 
@@ -127,6 +130,13 @@ def process_video(url, api_key):
         st.error(f"An error occurred: {str(e)}")
         st.markdown("If the file is too large (>25MB), Groq API might reject it.")
         return None
+    finally:
+        # Cleanup: Remove the file and the temporary directory it sits in
+        if audio_path and os.path.exists(audio_path):
+            try:
+                shutil.rmtree(os.path.dirname(audio_path))
+            except:
+                pass
 
 # --- MAIN APPLICATION UI ---
 
