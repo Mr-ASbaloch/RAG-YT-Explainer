@@ -98,7 +98,7 @@ def process_video(url, api_key):
         with open(audio_path, "rb") as file:
             transcription_obj = client.audio.transcriptions.create(
                 file=(os.path.basename(audio_path), file.read()), # Pass filename explicitly
-                model="distil-whisper-large-v3-en", # Groq's fast model
+                model="whisper-large-v3", # UPDATED: Switched to currently supported model
                 response_format="json",
                 language="en",
                 temperature=0.0
