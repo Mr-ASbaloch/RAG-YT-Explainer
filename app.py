@@ -12,13 +12,9 @@ import tempfile
 # --- CONFIGURATION ---
 st.set_page_config(page_title="YouTube Video Chat", page_icon="📺", layout="wide")
 
-# Retrieve API Key from Streamlit Secrets or Environment Variable
-# For local dev, set os.environ["GROQ_API_KEY"] = "your-key"
-# For Streamlit Cloud, set it in the dashboard secrets.
-try:
-    GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
-except:
-    GROQ_API_KEY = os.environ.get("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")
+# 👇👇👇 PASTE YOUR GROQ API KEY HERE 👇👇👇
+GROQ_API_KEY = "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"
+# 👆👆👆 PASTE YOUR GROQ API KEY HERE 👆👆👆
 
 # --- CACHED RESOURCE LOADING ---
 # These functions run only once and are cached to improve performance
@@ -140,8 +136,8 @@ with st.sidebar:
     youtube_url = st.text_input("YouTube URL", placeholder="https://youtube.com/...")
     
     if st.button("Process Video", type="primary"):
-        if not GROQ_API_KEY:
-            st.error("❌ Groq API Key is missing!")
+        if not GROQ_API_KEY or GROQ_API_KEY == "paste_your_api_key_here":
+            st.error("❌ Groq API Key is missing! Please paste it in the code.")
         elif not youtube_url:
             st.warning("Please enter a URL.")
         else:
