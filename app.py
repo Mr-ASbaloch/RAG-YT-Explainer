@@ -16,57 +16,77 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for modern UI
+# Custom CSS for Blue Theme
 st.markdown("""
 <style>
-    /* Main Background & Text */
+    /* Main App Background - Deep Blue */
     .stApp {
-        background-color: #0e1117;
-        color: #fafafa;
+        background-color: #040E24; /* Deep Midnight Blue */
+        color: #FFFFFF;
     }
     
-    /* Sidebar Styling */
+    /* Sidebar Background - Darker Blue */
     [data-testid="stSidebar"] {
-        background-color: #262730;
+        background-color: #020612;
+        border-right: 1px solid #1E3A8A;
     }
     
-    /* Headers */
-    h1 {
-        color: #FF4B4B !important;
-        font-family: 'Helvetica Neue', sans-serif;
-        font-weight: 700;
-    }
-    h2, h3 {
-        color: #FAFAFA !important;
+    /* Global Text Color to White */
+    h1, h2, h3, h4, h5, h6, p, span, div, label {
+        color: #FFFFFF !important;
     }
     
-    /* Chat Message Styling */
+    /* Chat Message Bubbles */
     .stChatMessage {
-        background-color: #1E1E1E;
+        background-color: #0F2345; /* Slightly lighter blue for chat */
         border-radius: 15px;
-        padding: 10px;
+        padding: 15px;
         margin-bottom: 10px;
-        border: 1px solid #333;
+        border: 1px solid #1E3A8A; /* Thin blue border */
+        box-shadow: 0 2px 5px rgba(0,0,0,0.3);
     }
     
-    /* Button Styling */
+    /* Code blocks within chat */
+    code {
+        background-color: #020612 !important;
+        color: #00FFFF !important; /* Cyan text for code */
+    }
+    
+    /* Buttons */
     .stButton>button {
         width: 100%;
         border-radius: 20px;
-        background-color: #FF4B4B;
-        color: white;
+        background: linear-gradient(90deg, #00C6FF 0%, #0072FF 100%); /* Blue Gradient */
+        color: white !important;
         font-weight: bold;
         border: none;
+        padding: 10px;
         transition: all 0.3s;
     }
     .stButton>button:hover {
-        background-color: #FF2B2B;
-        box-shadow: 0 4px 15px rgba(255, 75, 75, 0.4);
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(0, 198, 255, 0.4);
     }
     
     /* Input Fields */
     .stTextInput>div>div>input {
+        background-color: #0F2345;
+        color: white;
+        border: 1px solid #1E3A8A;
         border-radius: 10px;
+    }
+    
+    /* Chat Input */
+    .stChatInputContainer textarea {
+        background-color: #0F2345;
+        color: white;
+        border: 1px solid #1E3A8A;
+    }
+    
+    /* Status Container */
+    [data-testid="stStatusWidget"] {
+        background-color: #0F2345;
+        color: white;
     }
 </style>
 """, unsafe_allow_html=True)
